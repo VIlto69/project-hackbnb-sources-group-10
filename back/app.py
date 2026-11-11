@@ -1,3 +1,4 @@
+import os
 from flask import Flask
 from flask_cors import CORS
 from database.init import db
@@ -16,8 +17,9 @@ from api.uploads.uploads_api import uploads_api
 app = Flask(__name__)
 app.config.from_pyfile('config.py')
 
-# Add CORS to all requests
-CORS(app, origins=app.config["CORS_ORIGINS"])
+# [D10] CORS uniquement si des origines sont explicitement configurées (dev)
+if app.config["CORS_ORIGINS"]:
+   CORS(app, origins=app.config["CORS_ORIGINS"])
 
 # Initialize database
 db.init_app(app)
@@ -33,14 +35,25 @@ app.register_blueprint(bookings_api, url_prefix='/bookings')
 app.register_blueprint(uploads_api, url_prefix='/uploads')
 
 
+# [D7] En-têtes de sécurité aussi côté API (défense en profondeur)
+@app.after_request
+def security_headers(response):
+   response.headers["X-Content-Type-Options"] = "nosniff"
+   response.headers["X-Frame-Options"] = "DENY"
+   response.headers["Referrer-Policy"] = "no-referrer"
+   return response
+
+
 @app.route('/', methods=['GET'])
 def welcome():
    return "Welcome on API"
 
 
 if __name__ == '__main__':
+   # [Bonus] Jamais de debug en production : le débogueur Werkzeug permet d'exécuter du code
+   # En production, l'API est lancée avec gunicorn (voir prod.entrypoint.sh)
    app.run(
-      debug=True,
+      debug=os.getenv("FLASK_DEBUG") == "1",
       host="0.0.0.0",
       port=9001,
    )

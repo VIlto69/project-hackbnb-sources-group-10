@@ -1,3 +1,5 @@
+# Environnement de DÉVELOPPEMENT uniquement (serveur Vite = sources exposées).
+# Ne jamais exposer cette stack sur Internet : la production utilise prod.dockerfile.
 services:
   back:
     image: python:3
@@ -5,9 +7,13 @@ services:
     command: bash -c "pip3 install -r requirements.txt && python3 app.py"
     volumes:
       - ./back:/app
+    # [D6] Les secrets sont lus dans un fichier .env non versionné (voir .env.example)
+    env_file:
+      - .env
     environment:
       APP_ORIGIN_HOST: http://localhost:9000
-      STRIPE_API_KEY: sk_test_51RhVfI2aoAWLbEQqUskEoID6RpBTEXO3hFAmubERuAbcYeWZ18m1yTRS9L3m9akdKowxs8lteAbxfIFwhrRiIkho00IWLuBOs3
+      CORS_ORIGINS: http://localhost:9000
+      FLASK_DEBUG: "1"
 
   front:
     image: node:22
@@ -19,7 +25,7 @@ services:
   apache:
     image: httpd:latest
     ports:
-      - 9000:80
+      - 127.0.0.1:9000:80
     volumes:
       - ./apache/apache-dev.conf:/usr/local/apache2/conf/httpd.conf
     depends_on:

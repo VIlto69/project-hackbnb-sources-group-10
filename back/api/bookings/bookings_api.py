@@ -1,13 +1,12 @@
-import time
-import hashlib
+import hmac
+import secrets
 import string
-import random
 from datetime import date
 from flask import jsonify, Blueprint, request
 
 from database.init import db
 from api.rooms.rooms_models import Room
-from services.stripe import create_checkout, get_checkout_lines
+from services.stripe import create_checkout, get_checkout_lines, is_checkout_paid
 from .bookings_models import Booking
 from sqlalchemy.orm import joinedload
 
@@ -40,11 +39,11 @@ def get_booking_checkout_lines(reference: str):
     if not booking.is_paid:
         return {'error': 'Cannot get checkout lines without payment'}, 422
 
+    # [D3] L'identifiant de session ne vient plus du client : il est lu en base
     try:
-        checkout_session_id = request.args.get("checkout_session_id")
-        return jsonify(get_checkout_lines(checkout_session_id))
-    except:
-        return {'error': 'Invalid checkout session ID'}, 404
+        return jsonify(get_checkout_lines(booking.stripe_checkout_session_id))
+    except Exception:
+        return {'error': 'Unable to get checkout lines'}, 404
 
 
 @bookings_api.route('/', methods=['POST'])
@@ -88,11 +87,11 @@ def new_booking():
     booking_price = room.price * booking_duration_in_days
 
     # Generate random booking reference
-    booking_reference = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(8))
+    # [D4] Générateur cryptographique (module secrets) au lieu de random
+    booking_reference = ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(12))
 
-    # Generate random confirmation secret
-    random_string = str(int(time.time())) # get current timestamp in seconds
-    checkout_confirmation_secret = hashlib.sha512(random_string.encode('utf-8')).hexdigest() # hash it with safe sha512
+    # [D4] Secret imprévisible de 256 bits (au lieu d'un SHA-512 de l'horodatage)
+    checkout_confirmation_secret = secrets.token_urlsafe(32)
 
     # Create Stripe checkout session
     checkout_session = create_checkout(
@@ -135,8 +134,23 @@ def confirm_booking_checkout(reference: str):
     if not booking:
         return {'error': 'Booking not found'}, 404
     
-    if booking.checkout_confirmation_secret != request.json["confirmationSecret"]:
+    if booking.is_paid:
+        return jsonify({"success": True})
+
+    # [D4] Comparaison en temps constant
+    provided_secret = (request.get_json(silent=True) or {}).get("confirmationSecret", "")
+    if not isinstance(provided_secret, str) or not hmac.compare_digest(
+        booking.checkout_confirmation_secret, provided_secret
+    ):
         return {'error': 'Invalid confirmation secret'}, 422
+
+    # [D4] Le secret ne suffit plus : on vérifie le paiement réel auprès de Stripe
+    try:
+        paid = is_checkout_paid(booking.stripe_checkout_session_id, booking.reference)
+    except Exception:
+        return {'error': 'Unable to verify payment'}, 502
+    if not paid:
+        return {'error': 'Payment not completed'}, 402
 
     booking.is_paid = True
     db.session.commit()

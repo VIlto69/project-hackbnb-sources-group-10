@@ -1,3 +1,4 @@
+import DOMPurify from "dompurify" // [Bonus] Nettoyage du HTML des descriptions (XSS)
 import { useEffect, useState } from "react"
 import { useParams, useSearchParams } from "react-router-dom"
 import { apiBookingCheckoutLines, apiBookingConfirm, apiBookingDetails } from "../../api/bookings.api"
@@ -16,8 +17,10 @@ export const BookingPage = () => {
         const response = await apiBookingDetails(`${bookingId}`)
         setBooking(response.data)
 
-        const response2 = await apiBookingCheckoutLines(`${bookingId}`, response.data.stripe_checkout_session_id)
-        setCheckoutLines(response2.data)
+        if (response.data.is_paid) {
+            const response2 = await apiBookingCheckoutLines(`${bookingId}`)
+            setCheckoutLines(response2.data)
+        }
     }
 
     const confirmBookingCheckout = async (confirmationSecret: string) => {
@@ -46,7 +49,7 @@ export const BookingPage = () => {
 
                     <h2 className="mt-4 text-md text-gray-300">Hôte : {booking.room.host?.name}</h2>
 
-                    <div className="mt-8" dangerouslySetInnerHTML={{__html: booking.room.description}}></div>
+                    <div className="mt-8" dangerouslySetInnerHTML={{__html: DOMPurify.sanitize(booking.room.description)}}></div>
 
                     <div className="m-auto mt-10 rounded-3xl p-8 border-1 border-gray-300">
                         <h2 className="text-xl">
